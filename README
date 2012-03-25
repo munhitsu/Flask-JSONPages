@@ -1,0 +1,7 @@
+Flask-JSONPages
+---------------
+
+Provides static pages to a Flask application, based on JSON files
+as opposed to a relational database.
+
+Based on Flask-FlatPages

@@ -6,5 +6,7 @@ as opposed to a relational database.
 
 Based on Flask-FlatPages
 
+An example use case is to replace with this module all db connectivity to provide a stable environment for front end developer.
+
 Example usage:
 https://github.com/munhitsu/isi

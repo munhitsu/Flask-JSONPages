@@ -55,7 +55,7 @@ class JSONPage(object):
 
 class JSONPages(object):
     """
-    A collections of :class:`Page` objects.
+    A proxy to all 'JSONPage's
 
     :param app: your application
     :type app: Flask instance
@@ -64,57 +64,37 @@ class JSONPages(object):
         app.config.setdefault('JSONPAGES_ROOT', 'pages')
         app.config.setdefault('JSONPAGES_EXTENSION', '.json')
         app.config.setdefault('JSONPAGES_ENCODING', 'utf8')
-        app.config.setdefault('JSONPAGES_AUTO_RELOAD', True)
+        app.config.setdefault('JSONPAGES_INDEX', 'index')
         self.app = app
 
-        #: dict of filename: (page object, mtime when loaded)
+        #:dict of filename: (page object, mtime when loaded)
         self._file_cache = {}
 
-        app.before_request(self._conditional_auto_reset)
-
-    def _conditional_auto_reset(self):
-        """Reset if configured to do so on new requests."""
-        if self.app.config['JSONPAGES_AUTO_RELOAD'] or self.app.debug:
-            self.reload()
-
-    def reload(self):
-        """Forget all pages.
-        All pages will be reloaded next time they're accessed"""
-        try:
-            # This will "unshadow" the cached_property.
-            # The property will be re-executed on next access.
-            del self.__dict__['_pages']
-        except KeyError:
-            pass
-
-    def __iter__(self):
-        """Iterate on all :class:`Page` objects."""
-        return self._pages.itervalues()
-
-    def get(self, path, default=None):
+    def get(self, url_path):
         """
-        :Return: the :class:`Page` object at ``path``, or ``default``
-                 if there is none.
+        :Return: the :class:`JSONPage` object initialized from ``url_path``
         """
-        # This may trigger the property. Do it outside of the try block.
-        pages = self._pages
-        try:
-            return pages[path]
-        except KeyError:
-            return default
+        extension = self.app.config['JSONPAGES_EXTENSION']
+        index_name = self.app.config['JSONPAGES_INDEX']
+        file_path = os.path.join(self.root,url_path)
+        if os.path.isdir(file_path):
+            file_path = os.path.join(file_path,"%s%s" % (index_name, extension))
+        else:
+            file_path = "%s%s" % (file_path, extension)
+        return self._load_file(url_path, file_path)
 
-    def get_or_404(self, path):
-        """:Return: the :class:`Page` object at ``path``.
+    def get_or_404(self, url_path):
+        """:Return: the :class:`JSONPage` object at ``url_path``.
         :raises: :class:`NotFound` if the pages does not exist.
                  This is caught by Flask and triggers a 404 error.
         """
-        print path
-        page = self.get(path)
-        if not page:
+        try:
+            page = self.get(url_path)
+        except OSError:
             flask.abort(404)
         return page
 
-    @property
+    @werkzeug.cached_property
     def root(self):
         """Full path to the directory where pages are looked for.
 
@@ -124,31 +104,16 @@ class JSONPages(object):
         return os.path.join(self.app.root_path,
                             self.app.config['JSONPAGES_ROOT'])
 
-    @werkzeug.cached_property
-    def _pages(self):
-        """Walk the page root directory an return a dict of
-        unicode path: page object.
-        """
-        def _walk(directory, path_prefix=()):
-            for name in os.listdir(directory):
-                full_name = os.path.join(directory, name)
-                if os.path.isdir(full_name):
-                    _walk(full_name, path_prefix + (name,))
-                elif name.endswith(extension):
-                    name_without_extension = name[:-len(extension)]
-                    path = u'/'.join(path_prefix + (name_without_extension,))
-                    pages[path] = self._load_file(path, full_name)
-
-        extension = self.app.config['JSONPAGES_EXTENSION']
-        pages = {}
-        _walk(self.root)
-        return pages
 
     def _load_file(self, path, filename):
+        """
+        Opens file while caching it's parsed content (compares mtime of file)
+        :return: the :class:'JSONPage'
+        :raises: :class:`NotFound` if the file was not found
+        """
         mtime = os.path.getmtime(filename)
         cached = self._file_cache.get(filename)
         if cached and cached[1] == mtime:
-            # cached == (page, old_mtime)
             page = cached[0]
         else:
             with open(filename) as fd:
@@ -157,4 +122,3 @@ class JSONPages(object):
             page = JSONPage(path, content)
             self._file_cache[filename] = page, mtime
         return page
-
